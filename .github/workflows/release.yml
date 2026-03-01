@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*" # Matches semantic version tags like v1.2.3 or v1.2.3-rc.1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    name: Build and Test ${{ matrix.output }}
+    uses: ./.github/workflows/reusable-build-test.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            container: ghcr.io/almalinux/almalinux:8
+            alma_version: "8"
+            openssl: openssl11
+            arch: x86_64
+            output: libpq-openssl11_x86_64.so
+          - runner: ubuntu-24.04-arm
+            container: ghcr.io/almalinux/almalinux:8
+            alma_version: "8"
+            openssl: openssl11
+            arch: aarch64
+            output: libpq-openssl11_aarch64.so
+          - runner: ubuntu-24.04
+            container: ghcr.io/almalinux/almalinux:9
+            alma_version: "9"
+            openssl: openssl3
+            arch: x86_64
+            output: libpq-openssl3_x86_64.so
+          - runner: ubuntu-24.04-arm
+            container: ghcr.io/almalinux/almalinux:9
+            alma_version: "9"
+            openssl: openssl3
+            arch: aarch64
+            output: libpq-openssl3_aarch64.so
+    with:
+      runner: ${{ matrix.runner }}
+      container: ${{ matrix.container }}
+      alma_version: ${{ matrix.alma_version }}
+      output: ${{ matrix.output }}
+      upload_artifact: true
+
+  release:
+    name: Create draft release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-and-test
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: libpq-*.so
+          merge-multiple: true
+          path: release-assets
+
+      - name: Create or update draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          body: |
+            Built from the PostgreSQL submodule in AlmaLinux containers.
+
+            Included binaries:
+            - libpq-openssl11_x86_64.so (AlmaLinux 8, OpenSSL 1.1 / GLIBC 2.28 baseline)
+            - libpq-openssl11_aarch64.so (AlmaLinux 8, OpenSSL 1.1 / GLIBC 2.28 baseline)
+            - libpq-openssl3_x86_64.so (AlmaLinux 9, OpenSSL 3 / GLIBC 2.34 baseline)
+            - libpq-openssl3_aarch64.so (AlmaLinux 9, OpenSSL 3 / GLIBC 2.34 baseline)
+
+            GitHub also provides the source zip for this tag under "Source code (zip)".
+          files: |
+            release-assets/libpq-openssl11_x86_64.so
+            release-assets/libpq-openssl11_aarch64.so
+            release-assets/libpq-openssl3_x86_64.so
+            release-assets/libpq-openssl3_aarch64.so

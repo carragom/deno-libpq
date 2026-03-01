@@ -1,0 +1,141 @@
+name: Reusable Build and Test
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label
+        required: true
+        type: string
+      container:
+        description: Container image
+        required: true
+        type: string
+      alma_version:
+        description: AlmaLinux major version
+        required: true
+        type: string
+      output:
+        description: Output libpq artifact filename
+        required: true
+        type: string
+      upload_artifact:
+        description: Upload built artifact
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-and-test:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.container }}
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+
+          rpm --import "https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux-${{ inputs.alma_version }}" || true
+
+          dnf -y clean all
+          dnf -y makecache
+          dnf -y update almalinux-release || true
+          dnf -y install \
+            bison \
+            flex \
+            git \
+            gcc \
+            libpq \
+            make \
+            openssl-devel \
+            perl \
+            postgresql-server \
+            unzip
+
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build libpq from postgres submodule
+        run: |
+          set -euxo pipefail
+          deno task build:libpq -o ${{ inputs.output }}
+
+      # Validates the standard runtime path where libpq is loaded directly from a local build.
+      - name: Run tests with direct library path
+        env:
+          DENO_LIBPQ_PATH: ${{ github.workspace }}/dist/${{ inputs.output }}
+          PGURL: postgresql://postgres:postgres@postgres:5432/postgres
+        run: |
+          set -euxo pipefail
+          deno task test
+
+      # Validates local Postgres connectivity over Unix socket to cover non-TCP client connection behavior.
+      - name: Run tests against local Postgres via unix socket
+        env:
+          DENO_LIBPQ_PATH: ${{ github.workspace }}/dist/${{ inputs.output }}
+          PGURL: postgresql:///postgres?user=postgres&port=5432&host=/var/run/postgresql
+        run: |
+          set -euxo pipefail
+          unset DENO_LIBPQ_URL
+          id postgres >/dev/null 2>&1 || useradd -r -m postgres
+          PGDATA=/var/lib/pgsql/data
+          SOCKET_DIR=/var/run/postgresql
+          mkdir -p "$PGDATA" "$SOCKET_DIR"
+          chown -R postgres:postgres "$PGDATA" "$SOCKET_DIR"
+          runuser -u postgres -- initdb -D "$PGDATA" --username=postgres --auth-local=trust --auth-host=scram-sha-256
+          runuser -u postgres -- pg_ctl start -w -D "$PGDATA"
+          trap 'runuser -u postgres -- pg_ctl stop -w -D "$PGDATA"' EXIT
+          deno task test
+
+      # Validates compatibility with the system-provided AlmaLinux libpq shared library.
+      - name: Run tests with system libpq
+        env:
+          DENO_LIBPQ_PATH: /usr/lib64/libpq.so.5
+          PGURL: postgresql://postgres:postgres@postgres:5432/postgres
+        run: |
+          set -euxo pipefail
+          unset DENO_LIBPQ_URL
+          deno task test
+
+      # Validates plug URL loading by serving the built binary over HTTP with Deno's file server.
+      - name: Run tests with plug and local file server
+        env:
+          DENO_LIBPQ_URL: http://127.0.0.1:8000/
+          PGURL: postgresql://postgres:postgres@postgres:5432/postgres
+        run: |
+          set -euxo pipefail
+          unset DENO_LIBPQ_PATH
+          deno run -A jsr:@std/http/file-server dist --port 8000 &
+          server_pid=$!
+          trap 'kill $server_pid' EXIT
+          sleep 2
+          deno task test
+
+      - name: Upload binary artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.output }}
+          path: dist/${{ inputs.output }}
+          if-no-files-found: error

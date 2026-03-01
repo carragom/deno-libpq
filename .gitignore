@@ -1,0 +1,16 @@
+docs/
+
+# coverage
+coverage/
+
+# build output
+dist/
+
+# misc files
+.DS_Store
+.idea
+.vim
+_tmp/
+!_tmp/.keep
+*.sublime-project
+*.sublime-workspace

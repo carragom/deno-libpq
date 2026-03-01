@@ -1,0 +1,57 @@
+{
+	"name": "@carragom/deno-libpq",
+	"version": "0.1.0-alpha.1",
+	"github": "https://github.com/carragom/deno-libpq",
+	"description": "Deno native bindings for libpq, the PostgreSQL client library.",
+	"lock": false,
+	"exports": {
+		".": "./src/mod.ts",
+		"./ffi": "./src/ffi.ts"
+	},
+	"fmt": {
+		"useTabs": true,
+		"indentWidth": 3,
+		"singleQuote": true,
+		"semiColons": false
+	},
+	"lint": {
+		"rules": {
+			"tags": ["recommended", "jsr"],
+			"include": [
+				"camelcase",
+				"no-sync-fn-in-async-fn",
+				"single-var-declarator",
+				"no-console"
+			]
+		}
+	},
+	"test": {
+		"permissions": {
+			"all": true
+		}
+	},
+	"tasks": {
+		"build:libpq": "deno -A scripts/build-libpq.ts",
+		"test": "deno test -P --trace-leaks --coverage --doc --clean",
+		"test:local": {
+			"command": "DENO_LIBPQ_PATH=dist/libpq_x86_64.so deno test -P --trace-leaks --coverage --doc --clean",
+			"dependencies": [
+				"build:libpq"
+			]
+		}
+	},
+	"exclude": [
+		".git",
+		".github",
+		"coverage",
+		"postgres"
+	],
+	"imports": {
+		"@denosaurs/plug": "jsr:@denosaurs/plug@^1.1.0",
+		"@std/assert": "jsr:@std/assert@^1.0.19",
+		"@std/async": "jsr:@std/async@^1.2.0",
+		"@std/cli": "jsr:@std/cli@^1.0.28",
+		"@std/fs": "jsr:@std/fs@^1.0.23",
+		"@std/path": "jsr:@std/path@^1.1.4"
+	}
+}

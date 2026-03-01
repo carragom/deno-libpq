@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test ${{ matrix.output }}
+    uses: ./.github/workflows/reusable-build-test.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            container: ghcr.io/almalinux/almalinux:10
+            alma_version: "10"
+            arch: x86_64
+            output: libpq-openssl3_x86_64.so
+          - runner: ubuntu-24.04-arm
+            container: ghcr.io/almalinux/almalinux:10
+            alma_version: "10"
+            arch: aarch64
+            output: libpq-openssl3_aarch64.so
+    with:
+      runner: ${{ matrix.runner }}
+      container: ${{ matrix.container }}
+      alma_version: ${{ matrix.alma_version }}
+      output: ${{ matrix.output }}
+      upload_artifact: false
